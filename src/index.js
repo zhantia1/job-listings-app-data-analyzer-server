@@ -116,6 +116,36 @@ const processEndpointTwo = async () => {
     }
 }
 
+// RABBITMQ ---------------------------------------------------------
+
+const amqp = require('amqplib');
+
+const processData = async () => {
+    await processEndpointOne();
+    await processEndpointTwo();
+}
+
+async function startConsumer() {
+  try {
+    const conn = await amqp.connect(process.env.CLOUDAMQP_URL);
+    const channel = await conn.createChannel();
+    const queue = 'process_data_queue';
+
+    await channel.assertQueue(queue, { durable: true });
+    console.log("Consumer is waiting for messages in %s", queue);
+
+    channel.consume(queue, async (msg) => {
+      if (msg.content.toString() === 'trigger_process_data') {
+        console.log("Received trigger to start processing data");
+        await processData();
+        channel.ack(msg);
+      }
+    });
+  } catch (error) {
+    console.error('Failed to connect to RabbitMQ or to consume messages:', error);
+  }
+}
+
 // SERVER CODE ---------------------------------------------------------
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -131,8 +161,7 @@ app.get('/metrics', (req, res) => {
 // Route to start processing data
 app.get('/process-data', async (req, res) => {
     try {
-        await processEndpointOne();
-        await processEndpointTwo();
+        await processData();
 
         res.status(200).json({ message: 'Data processing completed successfully.' });
     } catch (error) {
@@ -150,6 +179,12 @@ app.get('/health-check', (req, res) => {
 if (env !== "test") {
     app.listen(PORT, () => {
         console.log(`Data-Analyzer-Server running on http://localhost:${PORT}`);
+
+        startConsumer().then(() => {
+            console.log('RabbitMQ Consumer started successfully.');
+        }).catch(error => {
+            console.error('Failed to start RabbitMQ Consumer:', error);
+        });
     });
 }
 
