@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
 const url = require('url');
+const { register, collectDefaultMetrics } = require('prom-client');
 
 const env = process.env.ENVIRONMENT || "dev";
 
@@ -17,6 +18,8 @@ if (env === "prod") {
         database: dbUrl.pathname.substring(1)
     });
 
+    // collect prometheus default metrics
+    collectDefaultMetrics();
 } else if (env !== "test") {
     pool = mysql.createPool({
         host: 'localhost',
@@ -118,6 +121,12 @@ const app = express();
 const PORT = process.env.PORT || 3002;
 
 app.use(express.json());
+
+// Set up Prometheus endpoint
+app.get('/metrics', (req, res) => {
+    res.set('Content-Type', register.contentType);
+    res.end(register.metrics());
+});
 
 // Route to start processing data
 app.get('/process-data', async (req, res) => {
