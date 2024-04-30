@@ -11,6 +11,7 @@
   "main": "index.js",
   "scripts": {
     "test": "ENVIRONMENT=test jest",
+    "test-local": "ENVIRONMENT=test-local jest",
     "start": "node src/index.js"
   },
   "keywords": [],

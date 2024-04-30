@@ -20,12 +20,19 @@ if (env === "prod") {
 
     // collect prometheus default metrics
     collectDefaultMetrics();
-} else if (env !== "test") {
+} else if (env === "test") {
     pool = mysql.createPool({
         host: 'localhost',
         user: 'root',
         password: `${process.env.DB_PASSWORD}`,
         database: 'project_database'
+    });
+} else if (env === "test-local") {
+    pool = mysql.createPool({
+        host: 'localhost',
+        user: 'root',
+        password: `${process.env.DB_PASSWORD}`,
+        database: 'test_database'
     });
 }
 
@@ -120,12 +127,7 @@ const processEndpointTwo = async () => {
 
 const amqp = require('amqplib');
 
-const processData = async () => {
-    await processEndpointOne();
-    await processEndpointTwo();
-}
-
-async function startConsumer() {
+async function startConsumer(processDataFunction = processData) {
   try {
     const conn = await amqp.connect(process.env.CLOUDAMQP_URL);
     const channel = await conn.createChannel();
@@ -135,9 +137,9 @@ async function startConsumer() {
     console.log("Consumer is waiting for messages in %s", queue);
 
     channel.consume(queue, async (msg) => {
-      if (msg.content.toString() === 'trigger_process_data') {
+      if (JSON.parse(msg.content.toString()) === 'trigger_process_data') {
         console.log("Received trigger to start processing data");
-        await processData();
+        await processDataFunction();
         channel.ack(msg);
       }
     });
@@ -151,6 +153,11 @@ const app = express();
 const PORT = process.env.PORT || 3002;
 
 app.use(express.json());
+
+const processData = async () => {
+    await processEndpointOne();
+    await processEndpointTwo();
+}
 
 // Set up Prometheus endpoint
 app.get('/metrics', (req, res) => {
@@ -176,19 +183,23 @@ app.get('/health-check', (req, res) => {
 
 // Start the server
 
-if (env !== "test") {
+if (env !== "test" && env !== "test-local") {
     app.listen(PORT, () => {
         console.log(`Data-Analyzer-Server running on http://localhost:${PORT}`);
 
-        startConsumer().then(() => {
-            console.log('RabbitMQ Consumer started successfully.');
-        }).catch(error => {
-            console.error('Failed to start RabbitMQ Consumer:', error);
-        });
+        if (env !== "test-local") {
+            startConsumer(processData).then(() => {
+                console.log('RabbitMQ Consumer started successfully.');
+            }).catch(error => {
+                console.error('Failed to start RabbitMQ Consumer:', error);
+            });
+        }
     });
 }
 
 module.exports = {
     app,
-    filterJobs
+    filterJobs,
+    startConsumer,
+    processData
 };
